@@ -58,7 +58,6 @@
             font-size: 1.8rem;
         }
 
-        /* Barre de partage */
         .share-box {
             display: flex;
             gap: 0.5rem;
@@ -74,7 +73,6 @@
             background-color: var(--share-hover);
         }
 
-        /* Formulaire */
         .event-form {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -132,7 +130,6 @@
             background-color: var(--primary-hover);
         }
 
-        /* Liste des événements */
         .event-list {
             margin-top: 1rem;
         }
@@ -208,7 +205,6 @@
             font-style: italic;
         }
 
-        /* Fenêtre Pop-up (Modale) */
         .modal {
             display: none;
             position: fixed;
@@ -307,27 +303,60 @@
     </form>
 
     <div class="event-list" id="eventList">
-        </div>
+        <p class="no-events">Connexion à la base de données...</p>
+    </div>
 </div>
 
 <div id="detailsModal" class="modal">
     <div class="modal-content">
         <h2 class="modal-header">📋 Détails de la tâche</h2>
-        <div class="modal-body" id="modalBody">
-            </div>
+        <div class="modal-body" id="modalBody"></div>
         <button class="btn close-modal" onclick="closeModal()">Fermer</button>
     </div>
 </div>
 
-<script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // Configuration Firebase avec VOS clés valides
+    const firebaseConfig = {
+        apiKey: "AIzaSyB5z5mR3FpiZ8tP_zTWhxNmKRvfVVit76I",
+        authDomain: "agenda-equipe-60993.firebaseapp.com",
+        projectId: "agenda-equipe-60993",
+        storageBucket: "agenda-equipe-60993.firebasestorage.app",
+        messagingSenderId: "922599252323",
+        appId: "1:922599252323:web:1d2da1c2ea3f16a92a3356",
+        measurementId: "G-W5D5ZL7XY5"
+    };
+
+    // Initialisation
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const eventsCollection = collection(db, "events");
+
     const eventForm = document.getElementById('eventForm');
     const eventList = document.getElementById('eventList');
     const detailsModal = document.getElementById('detailsModal');
     const modalBody = document.getElementById('modalBody');
 
-    let events = JSON.parse(localStorage.getItem('teamEvents')) || [];
+    let localEvents = [];
 
-    function displayEvents() {
+    // Écoute en temps réel
+    onSnapshot(eventsCollection, (snapshot) => {
+        localEvents = [];
+        snapshot.forEach(doc => {
+            localEvents.push({ id: doc.id, ...doc.data() });
+        });
+
+        localEvents.sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
+        displayEvents(localEvents);
+    }, (error) => {
+        console.error("Erreur Firebase Firestore :", error);
+        eventList.innerHTML = `<p class="no-events" style="color:red;">Erreur de connexion. Vérifiez que Firestore est bien en 'Mode Test'.</p>`;
+    });
+
+    function displayEvents(events) {
         eventList.innerHTML = '';
 
         if (events.length === 0) {
@@ -335,9 +364,7 @@
             return;
         }
 
-        events.sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
-
-        events.forEach((event, index) => {
+        events.forEach((event) => {
             const eventDate = new Date(event.date).toLocaleDateString('fr-FR', {
                 weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
             });
@@ -353,15 +380,22 @@
                     </div>
                 </div>
                 <div class="action-btns">
-                    <button class="btn view-btn" onclick="openModal(${index})">Voir détails</button>
-                    <button class="btn delete-btn" onclick="deleteEvent(${index})">Supprimer</button>
+                    <button class="btn view-btn" data-id="${event.id}">Voir détails</button>
+                    <button class="btn delete-btn" data-id="${event.id}">Supprimer</button>
                 </div>
             `;
             eventList.appendChild(eventItem);
         });
+
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.addEventListener('click', () => openModal(btn.getAttribute('data-id')));
+        });
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', () => deleteEvent(btn.getAttribute('data-id')));
+        });
     }
 
-    eventForm.addEventListener('submit', (e) => {
+    eventForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
         const newEvent = {
@@ -371,24 +405,28 @@
             member: document.getElementById('member').value
         };
 
-        events.push(newEvent);
-        localStorage.setItem('teamEvents', JSON.stringify(events));
-        
-        displayEvents();
-        eventForm.reset();
+        try {
+            await addDoc(eventsCollection, newEvent);
+            eventForm.reset();
+        } catch (error) {
+            alert("Erreur lors de l'ajout : " + error.message);
+        }
     });
 
-    function deleteEvent(index) {
+    async function deleteEvent(id) {
         if(confirm("Voulez-vous vraiment supprimer cette tâche ?")) {
-            events.splice(index, 1);
-            localStorage.setItem('teamEvents', JSON.stringify(events));
-            displayEvents();
+            try {
+                await deleteDoc(doc(db, "events", id));
+            } catch (error) {
+                alert("Erreur lors de la suppression : " + error.message);
+            }
         }
     }
 
-    // Gestion de la Pop-up détails
-    function openModal(index) {
-        const event = events[index];
+    function openModal(id) {
+        const event = localEvents.find(e => e.id === id);
+        if (!event) return;
+
         const eventDate = new Date(event.date).toLocaleDateString('fr-FR', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         });
@@ -398,35 +436,38 @@
             <p><b>Assigné à :</b><br> 👤 ${event.member}</p>
             <p><b>Date prévue :</b><br> 📅 ${eventDate}</p>
             <p><b>Heure :</b><br> 🕒 ${event.time}</p>
-            <p style="font-size:0.85rem; color:#64748b; margin-top:2rem; border-top: 1px dashed #e2e8f0; padding-top:0.5rem;">
-                ID Unique Tâche : #${index + 100}
+            <p style="font-size:0.75rem; color:#64748b; margin-top:2rem; border-top: 1px dashed #e2e8f0; padding-top:0.5rem; word-break: break-all;">
+                ID Cloud : ${event.id}
             </p>
         `;
         detailsModal.style.display = 'flex';
     }
 
-    function closeModal() {
+    window.closeModal = function() {
         detailsModal.style.display = 'none';
     }
+    
+    window.onclick = function(event) {
+        if (event.target == detailsModal) {
+            closeModal();
+        }
+    }
+</script>
 
-    // Fonction pour copier le lien actuel
+<script>
     function copyLink(buttonElement) {
         const currentUrl = window.location.href;
         navigator.clipboard.writeText(currentUrl).then(() => {
             const originalText = buttonElement.innerHTML;
             buttonElement.innerHTML = "✅ Lien copié !";
             buttonElement.style.backgroundColor = "var(--success)";
-            
             setTimeout(() => {
                 buttonElement.innerHTML = originalText;
                 buttonElement.style.backgroundColor = "var(--share)";
             }, 2000);
-        }).catch(err => {
-            alert("Erreur lors de la copie du lien.");
-        });
+        }).catch(() => alert("Erreur lors de la copie."));
     }
 
-    // Fonction pour partager aux amis
     function shareApp() {
         if (navigator.share) {
             navigator.share({
@@ -435,19 +476,9 @@
                 url: window.location.href
             }).catch(console.error);
         } else {
-            // Alternative si le navigateur bloque le partage natif (ex: sur PC fixe sans protocole HTTPS)
-            alert("Le partage natif n'est pas supporté sur ce navigateur. Utilisez le bouton 'Copier le lien' pour l'envoyer manuellement !");
+            alert("Copiez simplement le lien avec le bouton à gauche pour l'envoyer !");
         }
     }
-
-    // Fermer si on clique en dehors du carré blanc
-    window.onclick = function(event) {
-        if (event.target == detailsModal) {
-            closeModal();
-        }
-    }
-
-    displayEvents();
 </script>
 
 </body>
